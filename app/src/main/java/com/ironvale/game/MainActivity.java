@@ -2,17 +2,18 @@ package com.ironvale.game;
 
 import android.app.Activity;
 import android.graphics.Color;
-import android.os.Bundle;
 import android.os.Build;
+import android.os.Bundle;
 
 public class MainActivity extends Activity {
   GameView game;
 
   @Override public void onCreate(Bundle state){
     super.onCreate(state);
-    getWindow().setStatusBarColor(Color.rgb(13,22,18));
-    getWindow().setNavigationBarColor(Color.rgb(13,22,18));
+    getWindow().setStatusBarColor(Color.rgb(42,58,45));
+    getWindow().setNavigationBarColor(Color.rgb(42,58,45));
     if(Build.VERSION.SDK_INT>=29)getWindow().setNavigationBarContrastEnforced(false);
+    if(Build.VERSION.SDK_INT>=30)getWindow().setDecorFitsSystemWindows(false);
     game=new GameView(this);
     setContentView(game);
   }
@@ -28,10 +29,8 @@ public class MainActivity extends Activity {
   }
 
   @Override public void onBackPressed(){
-    if(game!=null && !game.menuScreen && !game.s.paused){
-      game.s.paused=true;
-      game.s.save();
-      game.invalidate();
+    if(game!=null&&!game.menuScreen&&!game.s.paused){
+      game.s.paused=true;game.s.save();game.invalidate();
     }else{
       super.onBackPressed();
     }
