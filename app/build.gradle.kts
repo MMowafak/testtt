@@ -5,10 +5,10 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.ironvale.game"
+        applicationId = "com.featherforce.arcade"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "5.0.0"
+        versionCode = 1
+        versionName = "1.0.0"
     }
 }
