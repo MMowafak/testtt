@@ -23,10 +23,10 @@ jobs:
       - name: Build APK
         run: gradle --no-daemon :app:assembleDebug
       - name: Rename APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk Feather-Force-v1.apk
+        run: cp app/build/outputs/apk/debug/app-debug.apk Feather-Force-Campaign-v2.apk
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Feather-Force-v1-APK
-          path: Feather-Force-v1.apk
+          name: Feather-Force-Campaign-v2-APK
+          path: Feather-Force-Campaign-v2.apk
           if-no-files-found: error
