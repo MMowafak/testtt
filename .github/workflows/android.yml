@@ -1,4 +1,4 @@
-name: Build Ironvale APK
+name: Build Feather Force APK
 
 on:
   push:
@@ -23,10 +23,10 @@ jobs:
       - name: Build APK
         run: gradle --no-daemon :app:assembleDebug
       - name: Rename APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk Ironvale-Warfront-v5.apk
+        run: cp app/build/outputs/apk/debug/app-debug.apk Feather-Force-v1.apk
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Ironvale-Warfront-v5-APK
-          path: Ironvale-Warfront-v5.apk
+          name: Feather-Force-v1-APK
+          path: Feather-Force-v1.apk
           if-no-files-found: error
