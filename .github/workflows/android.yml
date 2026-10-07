@@ -1,4 +1,4 @@
-name: Build Neon Rift APK
+name: Build StrikeFront APK
 
 on:
   push:
@@ -12,13 +12,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Rehydrate Neon Rift source
+      - name: Rehydrate StrikeFront source
         run: |
-          cat payload/neonrift.part* > neonrift-project.b64
-          base64 --decode neonrift-project.b64 > neonrift-project.zip
-          unzip -q neonrift-project.zip
-          test -f neonrift_project/settings.gradle.kts
-          test -f neonrift_project/app/src/main/java/com/neonrift/botstorm/ArenaView.java
+          cat payload/strikefront.part* > strikefront-project.b64
+          base64 --decode strikefront-project.b64 > strikefront-project.zip
+          unzip -q strikefront-project.zip
+          test -f strikefront_project/settings.gradle.kts
+          test -f strikefront_project/app/src/main/java/com/strikefront/zerohour/GameView.java
 
       - name: Java 17
         uses: actions/setup-java@v4
@@ -32,14 +32,14 @@ jobs:
           gradle-version: '8.11.1'
 
       - name: Build APK
-        run: gradle --no-daemon -p neonrift_project :app:assembleDebug
+        run: gradle --no-daemon -p strikefront_project :app:assembleDebug
 
       - name: Rename APK
-        run: cp neonrift_project/app/build/outputs/apk/debug/app-debug.apk Neon-Rift-Botstorm-v1.apk
+        run: cp strikefront_project/app/build/outputs/apk/debug/app-debug.apk StrikeFront-Zero-Hour-v1.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Neon-Rift-Botstorm-v1-APK
-          path: Neon-Rift-Botstorm-v1.apk
+          name: StrikeFront-Zero-Hour-v1-APK
+          path: StrikeFront-Zero-Hour-v1.apk
           if-no-files-found: error
