@@ -4,23 +4,27 @@ import android.app.Activity;
 import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
+import android.view.Window;
 
 public class MainActivity extends Activity {
   GameView game;
 
   @Override public void onCreate(Bundle state){
     super.onCreate(state);
-    getWindow().setStatusBarColor(Color.rgb(42,58,45));
-    getWindow().setNavigationBarColor(Color.rgb(42,58,45));
-    if(Build.VERSION.SDK_INT>=29)getWindow().setNavigationBarContrastEnforced(false);
-    if(Build.VERSION.SDK_INT>=30)getWindow().setDecorFitsSystemWindows(false);
+    Window w=getWindow();
+    w.setStatusBarColor(Color.BLACK);
+    w.setNavigationBarColor(Color.BLACK);
+    if(Build.VERSION.SDK_INT>=29)w.setNavigationBarContrastEnforced(false);
+    // Intentionally keep decorFitsSystemWindows=true so the game is laid out
+    // inside the phone's status/navigation/cutout-safe content rectangle.
+    if(Build.VERSION.SDK_INT>=30)w.setDecorFitsSystemWindows(true);
     game=new GameView(this);
     setContentView(game);
   }
 
   @Override protected void onPause(){
     super.onPause();
-    if(game!=null)game.s.save();
+    if(game!=null)game.pauseFromSystem();
   }
 
   @Override protected void onDestroy(){
@@ -29,10 +33,7 @@ public class MainActivity extends Activity {
   }
 
   @Override public void onBackPressed(){
-    if(game!=null&&!game.menuScreen&&!game.s.paused){
-      game.s.paused=true;game.s.save();game.invalidate();
-    }else{
-      super.onBackPressed();
-    }
+    if(game!=null && game.handleBack()) return;
+    super.onBackPressed();
   }
 }
