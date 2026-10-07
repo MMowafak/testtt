@@ -1,604 +1,150 @@
 package com.ironvale.game;
 
 import android.content.Context;
-import android.content.SharedPreferences;
-import android.graphics.Canvas;
-import android.graphics.Color;
-import android.graphics.Paint;
-import android.graphics.Path;
-import android.graphics.RectF;
-import android.graphics.Typeface;
-import android.media.AudioManager;
-import android.media.ToneGenerator;
-import android.os.Handler;
-import android.os.Looper;
-import android.view.MotionEvent;
-import android.view.View;
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.Locale;
-import java.util.Random;
+import android.graphics.*;
+import android.os.*;
+import android.view.*;
+import java.util.*;
 
 class GameView extends View {
-  static class Shot {
-    float x,y,vx,vy,r; int damage; boolean enemy;
-    Shot(float x,float y,float vx,float vy,float r,int damage,boolean enemy){
-      this.x=x;this.y=y;this.vx=vx;this.vy=vy;this.r=r;this.damage=damage;this.enemy=enemy;
-    }
-  }
-  static class Enemy {
-    float x,y,baseX,baseY,vx,vy,phase,scale;
-    int hp,maxHp,type,row,col;
-    boolean diving=false;
-    Enemy(float x,float y,int hp,int type,int row,int col,float phase,float scale){
-      this.x=x;this.y=y;this.baseX=x;this.baseY=y;this.hp=hp;this.maxHp=hp;this.type=type;this.row=row;this.col=col;this.phase=phase;this.scale=scale;
-    }
-  }
-  static class Drop {
-    float x,y,vy; int type;
-    Drop(float x,float y,float vy,int type){this.x=x;this.y=y;this.vy=vy;this.type=type;}
-  }
-  static class Spark {
-    float x,y,vx,vy,life,max; int color;
-    Spark(float x,float y,float vx,float vy,float life,int color){this.x=x;this.y=y;this.vx=vx;this.vy=vy;this.life=life;this.max=life;this.color=color;}
-  }
-  static class Star {
-    float x,y,speed,size;
-    Star(float x,float y,float speed,float size){this.x=x;this.y=y;this.speed=speed;this.size=size;}
-  }
+  static class Shot {float x,y,vx,vy,r;boolean enemy;Shot(float a,float b,float c,float d,float e,boolean f){x=a;y=b;vx=c;vy=d;r=e;enemy=f;}}
+  static class Enemy {float x,y,bx,by,phase,scale;int hp,max,type;boolean dive;float vx,vy;Enemy(float a,float b,int h,int t,float ph,float sc){x=bx=a;y=by=b;hp=max=h;type=t;phase=ph;scale=sc;}}
+  static class Drop {float x,y,vy;int type;Drop(float a,float b,float c,int t){x=a;y=b;vy=c;type=t;}}
+  static class Spark {float x,y,vx,vy,life,max;int col;Spark(float a,float b,float c,float d,float e,int f){x=a;y=b;vx=c;vy=d;life=max=e;col=f;}}
+  static class Star {float x,y,speed,size;Star(float a,float b,float c,float d){x=a;y=b;speed=c;size=d;}}
 
-  final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);
-  final Paint stroke=new Paint(Paint.ANTI_ALIAS_FLAG);
-  final Handler handler=new Handler(Looper.getMainLooper());
-  final Random rng=new Random();
+  final Paint p=new Paint(3), stroke=new Paint(3);
+  final Handler h=new Handler(Looper.getMainLooper());
+  final Random rnd=new Random();
   final ArrayList<Shot> shots=new ArrayList<>();
   final ArrayList<Enemy> enemies=new ArrayList<>();
   final ArrayList<Drop> drops=new ArrayList<>();
   final ArrayList<Spark> sparks=new ArrayList<>();
   final ArrayList<Star> stars=new ArrayList<>();
-  final SharedPreferences prefs;
-  final ToneGenerator tones;
+  final ProgressData prog;
+  final SoundEngine sound;
 
-  int W,H;
-  int mode=0; // 0 menu, 1 game, 2 game over
-  boolean paused=false,systemPaused=false;
-  float px,py,playerR;
-  int lives=3,weapon=1,bombs=2,score=0,wave=1,bestScore=0,bestWave=1;
-  float shield=0;
-  long lastNs=0;
-  float fireClock=0,enemyFireClock=0,waveDelay=0,banner=0,invuln=0,shake=0;
-  float touchX,touchY;
-  boolean touching=false;
+  int W,H,mode=0,sector=0,selectedLevel=1,lives=3,weapon=1,bombs=2,score=0,missionWave=1,resultStars=0,resultReward=0;
+  float px,py,pr,fire=0,enemyFire=0,waveDelay=0,banner=0,inv=0,shield=0,touchX,touchY,tutorial=0;
+  boolean touching=false,paused=false,systemPaused=false;
+  long last=0;
+  final int SPACE=Color.rgb(5,8,18),WHITE=Color.rgb(245,247,250),CYAN=Color.rgb(79,205,226),BLUE=Color.rgb(78,117,220),RED=Color.rgb(222,71,71),ORANGE=Color.rgb(244,147,62),YELLOW=Color.rgb(250,213,77),GREEN=Color.rgb(100,208,112);
+  final int PANEL=Color.argb(220,18,26,46),PANEL2=Color.argb(235,31,42,68);
 
-  final int SPACE=Color.rgb(5,8,18), SPACE2=Color.rgb(12,17,34), WHITE=Color.rgb(245,247,250);
-  final int CYAN=Color.rgb(79,205,226), BLUE=Color.rgb(78,117,220), RED=Color.rgb(222,71,71);
-  final int ORANGE=Color.rgb(244,147,62), YELLOW=Color.rgb(250,213,77), GREEN=Color.rgb(100,208,112);
-  final int CHICKEN=Color.rgb(244,235,196), CHICKEN2=Color.rgb(225,209,159), BEAK=Color.rgb(241,157,51);
-  final int PANEL=Color.argb(210,18,26,46), PANEL2=Color.argb(230,31,42,68);
-
-  final Runnable loop=new Runnable(){
-    public void run(){
-      long now=System.nanoTime();
-      if(lastNs==0)lastNs=now;
-      float dt=Math.min(.034f,(now-lastNs)/1_000_000_000f);
-      lastNs=now;
-      if(mode==1&&!paused&&!systemPaused)update(dt);
-      invalidate();
-      handler.postDelayed(this,16);
-    }
-  };
+  final Runnable loop=new Runnable(){public void run(){long n=System.nanoTime();if(last==0)last=n;float dt=Math.min(.034f,(n-last)/1e9f);last=n;if(mode==2&&!paused&&!systemPaused)update(dt);invalidate();h.postDelayed(this,16);}};
 
   GameView(Context c){
-    super(c);
-    setFocusable(true);
-    prefs=c.getSharedPreferences("feather_force_local",0);
-    bestScore=prefs.getInt("bestScore",0);
-    bestWave=prefs.getInt("bestWave",1);
-    tones=new ToneGenerator(AudioManager.STREAM_MUSIC,32);
-    handler.post(loop);
+    super(c);setFocusable(true);GameSprites.build();prog=new ProgressData(c);sound=new SoundEngine(c,prog.sfx,prog.music);h.post(loop);
   }
-
-  void dispose(){handler.removeCallbacks(loop);saveProgress();tones.release();}
-  void pauseFromSystem(){if(mode==1){systemPaused=true;paused=true;}saveProgress();}
-  boolean handleBack(){
-    if(mode==1&&!paused){paused=true;return true;}
-    if(mode==1&&paused){mode=0;paused=false;systemPaused=false;return true;}
-    if(mode==2){mode=0;return true;}
-    return false;
-  }
-
+  void dispose(){h.removeCallbacks(loop);prog.save();sound.release();}
+  void pauseFromSystem(){if(mode==2){systemPaused=true;paused=true;}sound.pauseMusic();prog.save();}
+  boolean handleBack(){if(mode==2&&!paused){paused=true;return true;}if(mode==2&&paused){mode=1;paused=false;systemPaused=false;return true;}if(mode!=0){mode=0;return true;}return false;}
   float d(float v){return v*getResources().getDisplayMetrics().density;}
-  float topHud(){return d(10);}
-  float bottomHud(){return H-d(10);}
-  float playTop(){return d(52);}
-  float playBottom(){return H-d(18);}
 
-  void saveProgress(){
-    if(score>bestScore)bestScore=score;
-    if(wave>bestWave)bestWave=wave;
-    prefs.edit().putInt("bestScore",bestScore).putInt("bestWave",bestWave).apply();
+  @Override protected void onSizeChanged(int w,int h0,int ow,int oh){W=w;H=h0;px=W*.5f;py=H*.82f;pr=Math.max(d(15),Math.min(W,H)*.035f);stars.clear();for(int i=0;i<100;i++)stars.add(new Star(rnd.nextFloat()*W,rnd.nextFloat()*H,18+rnd.nextFloat()*100,.5f+rnd.nextFloat()*1.8f));}
+  @Override protected void onDraw(Canvas c){c.drawColor(SPACE);background(c);if(mode==0)menu(c);else if(mode==1)campaign(c);else if(mode==2){game(c);if(paused)pause(c);}else if(mode==3)result(c);else if(mode==4)armory(c);else if(mode==5)achievements(c);else settings(c);}
+
+  void background(Canvas c){for(Star s:stars){p.setColor(Color.argb((int)(100+Math.min(150,s.speed)),210,225,255));c.drawCircle(s.x,s.y,d(s.size),p);}}
+  void t(Canvas c,String s,float x,float y,float sz,int col,boolean bold,boolean center){p.setColor(col);p.setTextSize(d(sz));p.setTypeface(Typeface.create("sans",bold?Typeface.BOLD:Typeface.NORMAL));p.setTextAlign(center?Paint.Align.CENTER:Paint.Align.LEFT);c.drawText(s,x,y,p);p.setTextAlign(Paint.Align.LEFT);}
+  void box(Canvas c,float l,float top,float r,float b,float rad,int col){p.setColor(col);c.drawRoundRect(l,top,r,b,d(rad),d(rad),p);}
+  void sprite(Canvas c,Bitmap b,float x,float y,float size){c.drawBitmap(b,null,new RectF(x-size/2,y-size/2,x+size/2,y+size/2),p);}
+  void click(){sound.click();}
+
+  void menu(Canvas c){
+    float cx=W/2f,top=d(25);sprite(c,GameSprites.chicken0,cx,top+d(60),d(94));t(c,"FEATHER FORCE",cx,top+d(132),27,WHITE,true,true);t(c,"GALACTIC CAMPAIGN",cx,top+d(157),10,CYAN,true,true);
+    float bw=Math.min(d(290),W*.55f),y=top+d(184);
+    button(c,cx-bw/2,y,bw,d(46),"PLAY CAMPAIGN",BLUE);
+    button(c,cx-bw/2,y+d(56),bw,d(40),"ARMORY  •  "+prog.coins+" C",Color.rgb(50,68,106));
+    button(c,cx-bw/2,y+d(104),bw,d(40),"ACHIEVEMENTS",Color.rgb(50,68,106));
+    button(c,cx-bw/2,y+d(152),bw,d(40),"SETTINGS",Color.rgb(50,68,106));
+    t(c,"30 missions • bosses • upgrades • stars • offline",cx,H-d(18),7,Color.rgb(145,164,202),false,true);
   }
+  void button(Canvas c,float x,float y,float w,float hh,String s,int col){box(c,x,y,x+w,y+hh,11,col);t(c,s,x+w/2,y+hh*.63f,9,WHITE,true,true);}
 
-  @Override protected void onSizeChanged(int w,int h,int oldw,int oldh){
-    W=w;H=h;
-    px=W*.5f;py=H*.82f;playerR=Math.max(d(16),Math.min(W,H)*.035f);
-    stars.clear();
-    for(int i=0;i<90;i++)stars.add(new Star(rng.nextFloat()*W,rng.nextFloat()*H,20+rng.nextFloat()*100,.7f+rng.nextFloat()*1.9f));
+  void campaign(Canvas c){
+    header(c,"CAMPAIGN",Campaign.SECTORS[sector]);
+    float cx=W/2f,y=d(74);t(c,"Stars "+prog.totalStars()+" / 90    Coins "+prog.coins,cx,y,8,Color.rgb(180,198,230),true,true);
+    float startX=W*.18f,endX=W*.82f,step=(endX-startX)/4f,ny=H*.48f;
+    for(int i=0;i<5;i++){int level=sector*5+i+1;float x=startX+i*step;boolean open=level<=prog.unlocked;int st=prog.stars[level-1];p.setColor(open?Color.rgb(38,83,145):Color.rgb(45,50,67));c.drawCircle(x,ny,d(28),p);stroke.setStyle(Paint.Style.STROKE);stroke.setStrokeWidth(d(3));stroke.setColor(open?CYAN:Color.rgb(88,94,111));c.drawCircle(x,ny,d(28),stroke);t(c,""+level,x,ny+d(5),12,open?WHITE:Color.rgb(120,126,142),true,true);t(c,starsText(st),x,ny+d(48),10,st>0?YELLOW:Color.rgb(85,94,117),true,true);if(i<4){stroke.setStrokeWidth(d(3));stroke.setColor(Color.rgb(67,89,128));c.drawLine(x+d(31),ny,x+step-d(31),ny,stroke);}}
+    int first=sector*5+1,last=first+4;t(c,Campaign.LEVELS[first-1].name,startX,ny-d(47),7,WHITE,true,true);t(c,Campaign.LEVELS[last-1].name,endX,ny-d(47),7,WHITE,true,true);
+    button(c,d(18),H-d(54),d(95),d(36),"‹ SECTOR",Color.rgb(45,59,88));button(c,W-d(113),H-d(54),d(95),d(36),"SECTOR ›",Color.rgb(45,59,88));button(c,W/2-d(55),H-d(54),d(110),d(36),"BACK",Color.rgb(45,59,88));
   }
+  String starsText(int n){return n==0?"☆☆☆":n==1?"★☆☆":n==2?"★★☆":"★★★";}
+  void header(Canvas c,String a,String b){t(c,a,d(18),d(28),16,WHITE,true,false);t(c,b,W-d(18),d(28),9,CYAN,true,false);}
 
-  @Override protected void onDraw(Canvas c){
-    super.onDraw(c);
-    c.drawColor(SPACE);
-    drawBackground(c);
-    if(mode==0)drawMenu(c);
-    else {
-      drawGame(c);
-      if(mode==2)drawGameOver(c);
-      else if(paused)drawPause(c);
-    }
+  void armory(Canvas c){
+    header(c,"ARMORY","Coins "+prog.coins);float y=d(72);upgradeCard(c,y,"BLASTER CORE","Start missions with stronger weapon power.",prog.blaster,5,"blaster");y+=d(82);upgradeCard(c,y,"SHIELD MATRIX","Power-up shields last longer.",prog.shield,5,"shield");y+=d(82);upgradeCard(c,y,"NOVA RACK","Carry more screen-clearing Nova charges.",prog.nova,3,"nova");button(c,W/2-d(55),H-d(52),d(110),d(35),"BACK",Color.rgb(45,59,88));
   }
+  void upgradeCard(Canvas c,float y,String name,String sub,int lv,int max,String key){float x=d(35),w=W-d(70);box(c,x,y,x+w,y+d(67),12,PANEL);t(c,name,x+d(18),y+d(24),10,WHITE,true,false);t(c,sub,x+d(18),y+d(44),7,Color.rgb(174,190,220),false,false);t(c,"LV "+lv+"/"+max,x+w-d(120),y+d(25),9,CYAN,true,false);if(lv<max)t(c,"BUY "+prog.cost(key),x+w-d(120),y+d(49),8,YELLOW,true,false);else t(c,"MAXED",x+w-d(120),y+d(49),8,GREEN,true,false);}
 
-  void drawBackground(Canvas c){
-    p.setStyle(Paint.Style.FILL);
-    for(Star s:stars){
-      int alpha=(int)(120+Math.min(135,s.speed));
-      p.setColor(Color.argb(alpha,210,225,255));
-      c.drawCircle(s.x,s.y,d(s.size),p);
-    }
-    p.setColor(Color.argb(25,88,118,190));
-    c.drawCircle(W*.16f,H*.23f,d(95),p);
-    p.setColor(Color.argb(18,200,90,180));
-    c.drawCircle(W*.80f,H*.66f,d(120),p);
+  void achievements(Canvas c){
+    header(c,"ACHIEVEMENTS",prog.totalStars()+" stars");String[] n={"First Flight","Flock Breaker","Boss Buster","Star Collector","Galactic Ace"};String[] dsc={"Complete mission 1","Destroy 100 enemies","Defeat any boss","Earn 30 stars","Complete mission 30"};boolean[] ok={prog.stars[0]>0,prog.totalKills>=100,prog.bossKills>0,prog.totalStars()>=30,prog.stars[29]>0};float y=d(62);for(int i=0;i<n.length;i++){box(c,d(28),y,W-d(28),y+d(52),10,ok[i]?Color.argb(220,32,72,62):PANEL);t(c,ok[i]?"✓":"○",d(46),y+d(33),16,ok[i]?GREEN:Color.rgb(130,145,175),true,false);t(c,n[i],d(78),y+d(22),9,WHITE,true,false);t(c,dsc[i],d(78),y+d(39),7,Color.rgb(173,189,220),false,false);y+=d(60);}button(c,W/2-d(55),H-d(48),d(110),d(34),"BACK",Color.rgb(45,59,88));
   }
-
-  void drawMenu(Canvas c){
-    float cx=W*.5f, top=Math.max(d(24),H*.08f);
-    drawLogoChicken(c,cx,top+d(52),d(38));
-    text(c,"FEATHER FORCE",cx,top+d(116),26,WHITE,true,true);
-    text(c,"ARCADE DEFENSE",cx,top+d(142),10,CYAN,true,true);
-    text(c,"Original offline arcade shooter inspired by classic chicken-wave games",cx,top+d(167),8,Color.rgb(164,181,214),false,true);
-
-    float boxW=Math.min(W-d(70),d(420)), boxX=cx-boxW/2, y=top+d(190);
-    round(c,boxX,y,boxX+boxW,y+d(88),16,PANEL);
-    text(c,"DRAG TO MOVE • AUTO-FIRE",cx,y+d(27),10,WHITE,true,true);
-    text(c,"Destroy waves, dodge eggs, collect upgrades, survive bosses.",cx,y+d(51),8,Color.rgb(188,202,230),false,true);
-    text(c,"All progress and high scores stay on this device.",cx,y+d(70),8,Color.rgb(188,202,230),false,true);
-
-    float bw=Math.min(d(260),W*.55f), bh=d(48), by=y+d(112);
-    round(c,cx-bw/2,by,cx+bw/2,by+bh,14,BLUE);
-    text(c,"START MISSION",cx,by+d(31),12,WHITE,true,true);
-
-    float statY=by+d(78);
-    text(c,"BEST SCORE  "+bestScore+"     BEST WAVE  "+bestWave,cx,statY,9,Color.rgb(174,191,223),true,true);
-    text(c,"Safe-area layout • landscape • no login",cx,H-d(18),7,Color.rgb(120,139,176),false,true);
+  void settings(Canvas c){
+    header(c,"SETTINGS","Local only");float y=d(90);settingRow(c,y,"MUSIC",prog.music);y+=d(70);settingRow(c,y,"SOUND EFFECTS",prog.sfx);y+=d(70);box(c,d(35),y,W-d(35),y+d(62),11,PANEL);t(c,"CONTROLS",d(55),y+d(24),9,WHITE,true,false);t(c,"Drag anywhere to move • Auto-fire • Tap NOVA button",d(55),y+d(44),7,Color.rgb(175,191,221),false,false);button(c,W/2-d(55),H-d(50),d(110),d(35),"BACK",Color.rgb(45,59,88));
   }
+  void settingRow(Canvas c,float y,String name,boolean on){box(c,d(35),y,W-d(35),y+d(52),11,PANEL);t(c,name,d(55),y+d(32),9,WHITE,true,false);t(c,on?"ON":"OFF",W-d(78),y+d(32),9,on?GREEN:RED,true,false);}
 
-  void drawLogoChicken(Canvas c,float x,float y,float s){
-    p.setStyle(Paint.Style.FILL);
-    p.setColor(CHICKEN);c.drawOval(new RectF(x-s*.72f,y-s*.45f,x+s*.72f,y+s*.45f),p);
-    p.setColor(WHITE);c.drawCircle(x+s*.48f,y-s*.30f,s*.32f,p);
-    p.setColor(RED);
-    c.drawCircle(x+s*.36f,y-s*.60f,s*.12f,p);c.drawCircle(x+s*.52f,y-s*.65f,s*.11f,p);c.drawCircle(x+s*.65f,y-s*.58f,s*.10f,p);
-    Path beak=new Path();beak.moveTo(x+s*.72f,y-s*.30f);beak.lineTo(x+s*1.02f,y-s*.18f);beak.lineTo(x+s*.72f,y-s*.06f);beak.close();p.setColor(BEAK);c.drawPath(beak,p);
-    p.setColor(Color.BLACK);c.drawCircle(x+s*.55f,y-s*.32f,s*.045f,p);
-    p.setColor(CHICKEN2);c.drawOval(new RectF(x-s*.78f,y-s*.26f,x-s*.36f,y+s*.18f),p);
+  void startMission(int lv){
+    selectedLevel=lv;mode=2;paused=false;systemPaused=false;score=0;lives=3;weapon=1+prog.blaster;bombs=2+prog.nova;shield=prog.shield*1.2f;missionWave=1;tutorial=lv==1?5f:0;shots.clear();enemies.clear();drops.clear();sparks.clear();px=W*.5f;py=H*.82f;fire=0;enemyFire=0;waveDelay=0;banner=2;spawnWave();sound.resumeMusic();
   }
-
-  void startGame(){
-    mode=1;paused=false;systemPaused=false;
-    score=0;wave=1;lives=3;weapon=1;bombs=2;shield=0;invuln=0;shake=0;
-    shots.clear();enemies.clear();drops.clear();sparks.clear();
-    px=W*.5f;py=H*.82f;
-    fireClock=0;enemyFireClock=0;waveDelay=0;banner=2f;
-    spawnWave();
-  }
+  Campaign.Level level(){return Campaign.LEVELS[selectedLevel-1];}
 
   void spawnWave(){
-    enemies.clear();
-    shots.removeIf(s->s.enemy);
-    banner=2.1f;
-    if(wave%5==0){
-      float scale=2.2f+wave*.03f;
-      Enemy boss=new Enemy(W*.5f,playTop()+d(90),80+wave*18,9,0,0,0,scale);
-      enemies.add(boss);
-      return;
-    }
-    int rows=Math.min(4,2+(wave-1)/3);
-    int cols=Math.min(9,6+(wave-1)/2);
-    float spacingX=Math.min(d(62),(W-d(120))/(float)Math.max(1,cols-1));
-    float spacingY=d(53);
-    float startX=W*.5f-spacingX*(cols-1)/2f;
-    float startY=playTop()+d(55);
-    for(int r=0;r<rows;r++){
-      for(int col=0;col<cols;col++){
-        int type=(wave+r+col)%4;
-        int hp=1+(wave/4)+(type==3?1:0);
-        float phase=r*.9f+col*.43f;
-        Enemy e=new Enemy(startX+col*spacingX,startY+r*spacingY,hp,type,r,col,phase,1f);
-        enemies.add(e);
-      }
-    }
+    enemies.clear();shots.removeIf(s->s.enemy);banner=1.7f;boolean boss=level().boss&&missionWave==level().waves;
+    if(boss){enemies.add(new Enemy(W*.5f,d(115),95+selectedLevel*8,9,0,2.1f));sound.boss();return;}
+    int rows=Math.min(4,2+(missionWave+selectedLevel/5)/2),cols=Math.min(9,6+selectedLevel/6);float sx=Math.min(d(60),(W-d(130))/(float)Math.max(1,cols-1)),sy=d(50),start=W*.5f-sx*(cols-1)/2f;
+    for(int r=0;r<rows;r++)for(int j=0;j<cols;j++){int type=(r+j+selectedLevel)%4;int hp=1+level().difficulty/4+(type==3?1:0);enemies.add(new Enemy(start+j*sx,d(83)+r*sy,hp,type,r*.8f+j*.43f,1));}
   }
 
   void update(float dt){
-    for(Star s:stars){
-      s.y+=s.speed*dt;
-      if(s.y>H){s.y=0;s.x=rng.nextFloat()*W;}
-    }
-    if(banner>0)banner-=dt;
-    if(invuln>0)invuln-=dt;
-    if(shield>0)shield-=dt;
-    if(shake>0)shake=Math.max(0,shake-dt*4);
-
-    if(touching){
-      float speed=Math.max(d(460),W*.55f);
-      float dx=touchX-px,dy=touchY-py;
-      float dist=(float)Math.sqrt(dx*dx+dy*dy);
-      if(dist>1){
-        float step=Math.min(dist,speed*dt);
-        px+=dx/dist*step;py+=dy/dist*step;
-      }
-    }
-    float margin=playerR+d(8);
-    px=Math.max(margin,Math.min(W-margin,px));
-    py=Math.max(playTop()+margin,Math.min(playBottom()-margin,py));
-
-    fireClock-=dt;
-    if(fireClock<=0){
-      fireClock=Math.max(.065f,.13f-weapon*.012f);
-      firePlayer();
-    }
-
-    enemyFireClock-=dt;
-    if(enemyFireClock<=0){
-      enemyFireClock=Math.max(.17f,1.1f-wave*.045f);
-      enemyFire();
-    }
-
-    float formationT=(float)(System.nanoTime()/1_000_000_000.0);
-    for(Enemy e:enemies){
-      if(e.type==9){
-        e.x=W*.5f+(float)Math.sin(formationT*.9)*W*.30f;
-        e.y=playTop()+d(88)+(float)Math.sin(formationT*1.5)*d(18);
-      }else if(e.diving){
-        e.x+=e.vx*dt;e.y+=e.vy*dt;
-        if(e.y>playBottom()+d(70)){e.diving=false;e.x=e.baseX;e.y=e.baseY;}
-      }else{
-        float amp=d(18)+wave*d(.4f);
-        e.x=e.baseX+(float)Math.sin(formationT*.8+e.phase)*amp;
-        e.y=e.baseY+(float)Math.sin(formationT*1.2+e.phase)*d(5);
-        if(wave>2&&rng.nextFloat()<dt*.018f*wave){
-          e.diving=true;
-          float dx=px-e.x,dy=py-e.y,dist=(float)Math.sqrt(dx*dx+dy*dy);
-          e.vx=dx/Math.max(1,dist)*(d(120)+wave*d(6));
-          e.vy=Math.abs(dy/Math.max(1,dist))*(d(150)+wave*d(7))+d(100);
-        }
-      }
-    }
-
-    for(Shot s:shots){s.x+=s.vx*dt;s.y+=s.vy*dt;}
-    for(Drop d:drops){d.y+=d.vy*dt;}
-    for(Spark s:sparks){s.x+=s.vx*dt;s.y+=s.vy*dt;s.vy+=d(40)*dt;s.life-=dt;}
-
-    handleCollisions();
-
-    for(Iterator<Shot> it=shots.iterator();it.hasNext();){
-      Shot s=it.next();if(s.y<-d(40)||s.y>H+d(40)||s.x<-d(40)||s.x>W+d(40))it.remove();
-    }
-    for(Iterator<Drop> it=drops.iterator();it.hasNext();){Drop dr=it.next();if(dr.y>H+d(30))it.remove();}
-    for(Iterator<Spark> it=sparks.iterator();it.hasNext();){if(it.next().life<=0)it.remove();}
-
-    if(enemies.isEmpty()){
-      waveDelay+=dt;
-      if(waveDelay>1.8f){wave++;bestWave=Math.max(bestWave,wave);waveDelay=0;spawnWave();tones.startTone(ToneGenerator.TONE_PROP_ACK,120);}
-    }else waveDelay=0;
+    for(Star s:stars){s.y+=s.speed*dt;if(s.y>H){s.y=0;s.x=rnd.nextFloat()*W;}}
+    if(tutorial>0)tutorial-=dt;if(banner>0)banner-=dt;if(inv>0)inv-=dt;if(shield>0)shield-=dt;
+    if(touching){float dx=touchX-px,dy=touchY-py,dist=(float)Math.sqrt(dx*dx+dy*dy),step=Math.min(dist,d(500)*dt);if(dist>1){px+=dx/dist*step;py+=dy/dist*step;}}
+    px=Math.max(pr+d(5),Math.min(W-pr-d(5),px));py=Math.max(d(55)+pr,Math.min(H-pr-d(8),py));
+    fire-=dt;if(fire<=0){fire=Math.max(.055f,.13f-weapon*.011f);firePlayer();sound.laser();}
+    enemyFire-=dt;if(enemyFire<=0){enemyFire=Math.max(.20f,1.05f-level().difficulty*.045f);enemyFire();}
+    float tm=System.nanoTime()/1e9f;for(Enemy e:enemies){if(e.type==9){e.x=W*.5f+(float)Math.sin(tm*.8)*W*.30f;e.y=d(105)+(float)Math.sin(tm*1.4)*d(17);}else if(e.dive){e.x+=e.vx*dt;e.y+=e.vy*dt;if(e.y>H+d(60)){e.dive=false;e.x=e.bx;e.y=e.by;}}else{e.x=e.bx+(float)Math.sin(tm*.85+e.phase)*d(16);e.y=e.by+(float)Math.sin(tm*1.2+e.phase)*d(5);if(selectedLevel>3&&rnd.nextFloat()<dt*.012f*level().difficulty){e.dive=true;float dx=px-e.x,dy=py-e.y,dd=(float)Math.sqrt(dx*dx+dy*dy);e.vx=dx/Math.max(1,dd)*d(150);e.vy=Math.abs(dy/Math.max(1,dd))*d(190)+d(90);}}}
+    for(Shot s:shots){s.x+=s.vx*dt;s.y+=s.vy*dt;}for(Drop q:drops)q.y+=q.vy*dt;for(Spark q:sparks){q.x+=q.vx*dt;q.y+=q.vy*dt;q.life-=dt;}
+    collisions();shots.removeIf(s->s.y<-d(40)||s.y>H+d(40)||s.x<-d(40)||s.x>W+d(40));drops.removeIf(q->q.y>H+d(40));sparks.removeIf(q->q.life<=0);
+    if(enemies.isEmpty()){waveDelay+=dt;if(waveDelay>1.35f){waveDelay=0;if(missionWave<level().waves){missionWave++;spawnWave();}else finishMission();}}else waveDelay=0;
   }
 
-  void firePlayer(){
-    float y=py-playerR*.85f;
-    if(weapon<=1){
-      shots.add(new Shot(px,y,0,-d(620),d(3),1,false));
-    }else if(weapon==2){
-      shots.add(new Shot(px-d(8),y,0,-d(650),d(3),1,false));
-      shots.add(new Shot(px+d(8),y,0,-d(650),d(3),1,false));
-    }else if(weapon==3){
-      shots.add(new Shot(px,y,0,-d(690),d(3.2f),1,false));
-      shots.add(new Shot(px-d(10),y,-d(45),-d(650),d(3),1,false));
-      shots.add(new Shot(px+d(10),y,d(45),-d(650),d(3),1,false));
-    }else{
-      shots.add(new Shot(px,y,0,-d(720),d(3.4f),1,false));
-      shots.add(new Shot(px-d(11),y,-d(70),-d(675),d(3.1f),1,false));
-      shots.add(new Shot(px+d(11),y,d(70),-d(675),d(3.1f),1,false));
-      shots.add(new Shot(px-d(15),y,-d(125),-d(620),d(2.8f),1,false));
-      shots.add(new Shot(px+d(15),y,d(125),-d(620),d(2.8f),1,false));
-    }
+  void firePlayer(){float y=py-pr*.9f;shots.add(new Shot(px,y,0,-d(650),d(3),false));if(weapon>=2){shots.add(new Shot(px-d(9),y,-d(28),-d(640),d(3),false));shots.add(new Shot(px+d(9),y,d(28),-d(640),d(3),false));}if(weapon>=4){shots.add(new Shot(px-d(14),y,-d(95),-d(610),d(2.8f),false));shots.add(new Shot(px+d(14),y,d(95),-d(610),d(2.8f),false));}}
+  void enemyFire(){if(enemies.isEmpty())return;Enemy e=enemies.get(rnd.nextInt(enemies.size()));float dx=px-e.x,dy=py-e.y,dd=(float)Math.sqrt(dx*dx+dy*dy),sp=d(150+level().difficulty*6);shots.add(new Shot(e.x,e.y+d(12),dx/Math.max(1,dd)*sp*.45f,Math.max(d(100),dy/Math.max(1,dd)*sp),d(e.type==9?7:5),true));}
+  void collisions(){
+    for(Iterator<Shot> it=shots.iterator();it.hasNext();){Shot b=it.next();if(!b.enemy){Enemy hit=null;for(Enemy e:enemies){float rr=d(e.type==9?31:17)*e.scale+b.r,dx=b.x-e.x,dy=b.y-e.y;if(dx*dx+dy*dy<rr*rr){hit=e;break;}}if(hit!=null){hit.hp--;it.remove();sound.hit();if(hit.hp<=0)kill(hit);continue;}}else if(inv<=0){float dx=b.x-px,dy=b.y-py,rr=pr*.7f+b.r;if(dx*dx+dy*dy<rr*rr){it.remove();if(shield>0){shield=Math.max(0,shield-2);sound.shield();}else playerHit();}}}
+    for(Iterator<Drop> it=drops.iterator();it.hasNext();){Drop q=it.next();float dx=q.x-px,dy=q.y-py;if(dx*dx+dy*dy<d(27)*d(27)){if(q.type==0)weapon=Math.min(6,weapon+1);else if(q.type==1)shield=9+prog.shield*2;else if(q.type==2)bombs=Math.min(7,bombs+1);else {prog.coins+=25;prog.save();}sound.pickup();it.remove();}}
   }
+  void kill(Enemy e){enemies.remove(e);prog.totalKills++;int val=e.type==9?4500:100+e.type*40;score+=val+selectedLevel*12;burst(e.x,e.y,e.type==9?30:12,e.type==9?ORANGE:YELLOW);sound.explode();if(e.type==9){prog.bossKills++;}if(rnd.nextFloat()<(e.type==9?.8f:.13f))drops.add(new Drop(e.x,e.y,d(95),e.type==9?0:rnd.nextInt(4)));if(rnd.nextFloat()<.16f)sound.cluck();}
+  void playerHit(){lives--;weapon=Math.max(1+prog.blaster,weapon-1);inv=1.5f;burst(px,py,24,RED);sound.explode();if(lives<=0){resultStars=0;resultReward=Math.max(50,score/25);prog.coins+=resultReward;prog.save();mode=3;touching=false;}}
+  void burst(float x,float y,int n,int col){for(int i=0;i<n;i++){float a=rnd.nextFloat()*6.28f,sp=d(40+rnd.nextFloat()*130);sparks.add(new Spark(x,y,(float)Math.cos(a)*sp,(float)Math.sin(a)*sp,.3f+rnd.nextFloat()*.35f,col));}}
 
-  void enemyFire(){
-    if(enemies.isEmpty())return;
-    int count=Math.min(enemies.size(),wave%5==0?3:1+(wave/8));
-    for(int i=0;i<count;i++){
-      Enemy e=enemies.get(rng.nextInt(enemies.size()));
-      float dx=px-e.x,dy=py-e.y;
-      float dist=(float)Math.sqrt(dx*dx+dy*dy);
-      float speed=d(165)+wave*d(4);
-      if(e.type==9)speed*=1.18f;
-      float vx=dx/Math.max(1,dist)*speed*.42f;
-      float vy=Math.max(d(110),dy/Math.max(1,dist)*speed);
-      shots.add(new Shot(e.x,e.y+d(16)*e.scale,vx,vy,d(e.type==9?7:5),1,true));
-    }
+  void finishMission(){int target=3500+selectedLevel*650;resultStars=1+(lives>=2?1:0)+(score>=target?1:0);resultReward=350+selectedLevel*70+resultStars*150;prog.finish(selectedLevel,resultStars,resultReward,level().boss);sound.victory();mode=3;touching=false;}
+
+  void game(Canvas c){
+    for(Enemy e:enemies)drawEnemy(c,e);for(Shot s:shots)drawShot(c,s);for(Drop q:drops){sprite(c,GameSprites.power(q.type),q.x,q.y,d(35));}for(Spark q:sparks){p.setColor(Color.argb((int)(255*Math.max(0,q.life/q.max)),Color.red(q.col),Color.green(q.col),Color.blue(q.col)));c.drawCircle(q.x,q.y,d(2),p);}drawPlayer(c);hud(c);
+    if(banner>0){p.setColor(Color.argb(155,8,13,28));c.drawRect(0,H*.42f,W,H*.59f,p);t(c,level().boss&&missionWave==level().waves?"BOSS WAVE":"WAVE "+missionWave,W*.5f,H*.50f,22,WHITE,true,true);t(c,Campaign.LEVELS[selectedLevel-1].name,W*.5f,H*.55f,8,CYAN,true,true);}
+    if(tutorial>0){box(c,d(60),H-d(88),W-d(60),H-d(24),12,Color.argb(225,20,29,49));t(c,"DRAG TO MOVE • AUTO-FIRE • TAP NOVA TO CLEAR ENEMY SHOTS",W*.5f,H-d(56),9,WHITE,true,true);t(c,"Collect glowing power-ups. Survive all waves to earn up to 3 stars.",W*.5f,H-d(35),7,CYAN,false,true);}
   }
+  void drawEnemy(Canvas c,Enemy e){Bitmap b=e.type==9?GameSprites.boss:GameSprites.chicken(e.type);sprite(c,b,e.x,e.y,d(e.type==9?92:48)*e.scale);if(e.type==9){float hp=e.hp/(float)e.max;box(c,e.x-d(55),e.y+d(48),e.x+d(55),e.y+d(54),3,Color.rgb(47,56,75));box(c,e.x-d(55),e.y+d(48),e.x-d(55)+d(110)*hp,e.y+d(54),3,RED);}}
+  void drawShot(Canvas c,Shot s){if(s.enemy){p.setColor(WHITE);c.drawOval(new RectF(s.x-s.r,s.y-s.r*1.3f,s.x+s.r,s.y+s.r*1.3f),p);p.setColor(Color.rgb(226,211,166));c.drawCircle(s.x,s.y,s.r*.5f,p);}else{p.setColor(CYAN);c.drawRoundRect(new RectF(s.x-s.r*.6f,s.y-s.r*2.4f,s.x+s.r*.6f,s.y+s.r*2.4f),s.r,s.r,p);}}
+  void drawPlayer(Canvas c){sprite(c,GameSprites.ship,px,py,pr*3.1f);if(shield>0){stroke.setStyle(Paint.Style.STROKE);stroke.setStrokeWidth(d(2));stroke.setColor(CYAN);c.drawCircle(px,py,pr*1.35f,stroke);}}
+  void hud(Canvas c){box(c,d(8),d(8),d(185),d(42),10,PANEL);t(c,"SCORE "+score,d(18),d(30),9,WHITE,true,false);box(c,W*.5f-d(95),d(8),W*.5f+d(95),d(42),10,PANEL);t(c,"MISSION "+selectedLevel+"  •  "+missionWave+"/"+level().waves,W*.5f,d(30),9,CYAN,true,true);box(c,W-d(192),d(8),W-d(8),d(42),10,PANEL);t(c,"♥ "+lives+"   POWER "+weapon+"   NOVA "+bombs,W-d(180),d(30),8,WHITE,true,false);box(c,W-d(50),H-d(52),W-d(10),H-d(12),20,Color.argb(230,57,70,107));t(c,"N",W-d(30),H-d(27),12,WHITE,true,true);box(c,W-d(48),d(47),W-d(10),d(80),9,PANEL2);t(c,"Ⅱ",W-d(29),d(70),13,WHITE,true,true);}
 
-  void handleCollisions(){
-    for(Iterator<Shot> sit=shots.iterator();sit.hasNext();){
-      Shot b=sit.next();
-      if(!b.enemy){
-        Enemy hit=null;
-        for(Enemy e:enemies){
-          float er=d(e.type==9?30:17)*e.scale;
-          float dx=b.x-e.x,dy=b.y-e.y;
-          if(dx*dx+dy*dy<(er+b.r)*(er+b.r)){hit=e;break;}
-        }
-        if(hit!=null){
-          hit.hp-=b.damage;sit.remove();sparkBurst(b.x,b.y,5,YELLOW);
-          if(hit.hp<=0)killEnemy(hit);
-          continue;
-        }
-      }else if(invuln<=0){
-        float dx=b.x-px,dy=b.y-py,rr=playerR*.72f+b.r;
-        if(dx*dx+dy*dy<rr*rr){
-          sit.remove();
-          if(shield>0){shield=Math.max(0,shield-2.5f);sparkBurst(px,py,8,CYAN);}
-          else playerHit();
-          continue;
-        }
-      }
-    }
+  void pause(Canvas c){p.setColor(Color.argb(190,0,0,0));c.drawRect(0,0,W,H,p);float cx=W/2f,y=H*.27f,w=Math.min(d(370),W*.55f);box(c,cx-w/2,y,cx+w/2,y+d(170),15,PANEL2);t(c,"PAUSED",cx,y+d(40),18,WHITE,true,true);button(c,cx-d(120),y+d(72),d(240),d(38),"RESUME",BLUE);button(c,cx-d(120),y+d(118),d(240),d(34),"EXIT MISSION",Color.rgb(53,63,88));}
 
-    for(Iterator<Enemy> it=enemies.iterator();it.hasNext();){
-      Enemy e=it.next();
-      if(invuln<=0){
-        float er=d(e.type==9?34:18)*e.scale;
-        float dx=e.x-px,dy=e.y-py,rr=er+playerR*.65f;
-        if(dx*dx+dy*dy<rr*rr){
-          if(e.type!=9){it.remove();score+=25;sparkBurst(e.x,e.y,12,ORANGE);}
-          playerHit();
-          break;
-        }
-      }
-    }
+  void result(Canvas c){float cx=W/2f,y=d(55),w=Math.min(d(420),W*.62f);box(c,cx-w/2,y,cx+w/2,H-d(45),18,PANEL2);t(c,resultStars>0?"MISSION COMPLETE":"MISSION FAILED",cx,y+d(42),18,resultStars>0?GREEN:RED,true,true);t(c,starsText(resultStars),cx,y+d(82),22,YELLOW,true,true);t(c,"Score "+score+"   Reward "+resultReward+" coins",cx,y+d(112),9,WHITE,true,true);if(resultStars>0)t(c,"Mission "+Math.min(30,selectedLevel+1)+" unlocked",cx,y+d(137),8,CYAN,false,true);button(c,cx-d(125),y+d(160),d(250),d(38),resultStars>0&&selectedLevel<30?"NEXT MISSION":"RETRY",BLUE);button(c,cx-d(125),y+d(207),d(250),d(34),"CAMPAIGN MAP",Color.rgb(53,63,88));}
 
-    for(Iterator<Drop> it=drops.iterator();it.hasNext();){
-      Drop dr=it.next();float dx=dr.x-px,dy=dr.y-py,rr=d(17)+playerR*.65f;
-      if(dx*dx+dy*dy<rr*rr){applyDrop(dr.type);it.remove();}
-    }
-  }
+  void useNova(){if(bombs<=0)return;bombs--;shots.removeIf(s->s.enemy);for(Enemy e:new ArrayList<>(enemies)){e.hp-=e.type==9?16:99;if(e.hp<=0)kill(e);}shield=Math.max(shield,2.2f);sound.nova();}
 
-  void killEnemy(Enemy e){
-    enemies.remove(e);
-    int base=e.type==9?5000:100+e.type*35;
-    score+=base+wave*10;
-    bestScore=Math.max(bestScore,score);
-    sparkBurst(e.x,e.y,e.type==9?38:14,e.type==9?ORANGE:CHICKEN);
-    if(e.type==9){
-      bombs=Math.min(5,bombs+1);weapon=Math.min(5,weapon+1);
-      tones.startTone(ToneGenerator.TONE_CDMA_HIGH_L,220);
-    }else if(rng.nextFloat()<.12f){
-      int t=rng.nextFloat()<.65f?0:(rng.nextBoolean()?1:2);
-      drops.add(new Drop(e.x,e.y,d(95),t));
-    }
-  }
-
-  void playerHit(){
-    if(invuln>0)return;
-    lives--;weapon=Math.max(1,weapon-1);invuln=1.6f;shake=1f;
-    sparkBurst(px,py,28,RED);
-    tones.startTone(ToneGenerator.TONE_SUP_ERROR,220);
-    if(lives<=0){
-      mode=2;paused=false;touching=false;saveProgress();
-    }
-  }
-
-  void applyDrop(int type){
-    if(type==0){weapon=Math.min(5,weapon+1);score+=250;}
-    else if(type==1){shield=10f;score+=150;}
-    else {bombs=Math.min(5,bombs+1);score+=150;}
-    tones.startTone(ToneGenerator.TONE_PROP_BEEP2,100);
-    sparkBurst(px,py,16,type==0?YELLOW:type==1?CYAN:ORANGE);
-  }
-
-  void useBomb(){
-    if(bombs<=0||mode!=1||paused)return;
-    bombs--;
-    for(Iterator<Shot> it=shots.iterator();it.hasNext();)if(it.next().enemy)it.remove();
-    for(Enemy e:new ArrayList<>(enemies)){
-      e.hp-=e.type==9?18:99;
-      sparkBurst(e.x,e.y,e.type==9?12:8,CYAN);
-      if(e.hp<=0)killEnemy(e);
-    }
-    shield=Math.max(shield,2.5f);
-    shake=1f;tones.startTone(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD,180);
-  }
-
-  void sparkBurst(float x,float y,int count,int col){
-    for(int i=0;i<count;i++){
-      float a=rng.nextFloat()*(float)Math.PI*2f,sp=d(35+rng.nextFloat()*150);
-      sparks.add(new Spark(x,y,(float)Math.cos(a)*sp,(float)Math.sin(a)*sp,.25f+rng.nextFloat()*.45f,col));
-    }
-  }
-
-  void drawGame(Canvas canvas){
-    float sx=shake>0?(rng.nextFloat()-.5f)*d(8)*shake:0;
-    float sy=shake>0?(rng.nextFloat()-.5f)*d(8)*shake:0;
-    canvas.save();canvas.translate(sx,sy);
-
-    for(Enemy e:enemies)drawEnemy(canvas,e);
-    for(Shot s:shots)drawShot(canvas,s);
-    for(Drop dr:drops)drawDrop(canvas,dr);
-    for(Spark sp:sparks)drawSpark(canvas,sp);
-    drawPlayer(canvas);
-
-    canvas.restore();
-    drawHud(canvas);
-    if(banner>0){
-      float alpha=Math.min(1,banner/.45f);p.setColor(Color.argb((int)(155*alpha),9,14,29));
-      canvas.drawRect(0,H*.43f,W,H*.59f,p);
-      text(canvas,wave%5==0?"BOSS WAVE "+wave:"WAVE "+wave,W*.5f,H*.51f,24,WHITE,true,true);
-      text(canvas,wave%5==0?"THE ROOST COMMANDER":"INCOMING FLOCK",W*.5f,H*.55f,8,CYAN,true,true);
-    }
-  }
-
-  void drawHud(Canvas c){
-    round(c,d(8),topHud(),d(180),topHud()+d(34),10,PANEL);
-    text(c,"SCORE "+score,d(19),topHud()+d(14),8,Color.rgb(182,197,228),true,false);
-    text(c,String.format(Locale.US,"%06d",score),d(19),topHud()+d(29),11,WHITE,true,false);
-
-    float cx=W*.5f;
-    round(c,cx-d(80),topHud(),cx+d(80),topHud()+d(34),10,PANEL);
-    text(c,"WAVE "+wave,cx-d(64),topHud()+d(14),8,CYAN,true,false);
-    text(c,"LIVES "+lives+"   POWER "+weapon,cx-d(64),topHud()+d(29),9,WHITE,true,false);
-
-    round(c,W-d(180),topHud(),W-d(8),topHud()+d(34),10,PANEL);
-    text(c,"SHIELD "+(shield>0?(int)Math.ceil(shield)+"s":"OFF"),W-d(168),topHud()+d(14),7,shield>0?CYAN:Color.rgb(150,160,185),true,false);
-    text(c,"NOVA x"+bombs,W-d(168),topHud()+d(29),9,ORANGE,true,false);
-
-    round(c,W-d(51),H-d(55),W-d(9),H-d(13),21,Color.argb(220,54,69,107));
-    text(c,"N",W-d(30),H-d(28),13,WHITE,true,true);
-    round(c,W-d(49),d(8),W-d(9),d(42),10,Color.argb(225,44,54,82));
-    text(c,"Ⅱ",W-d(29),d(31),14,WHITE,true,true);
-  }
-
-  void drawPlayer(Canvas c){
-    float alpha=invuln>0&&((int)(invuln*12)%2==0)?.35f:1f;
-    int a=(int)(255*alpha);
-    Path ship=new Path();
-    ship.moveTo(px,py-playerR);
-    ship.lineTo(px-playerR*.75f,py+playerR*.75f);
-    ship.lineTo(px,py+playerR*.35f);
-    ship.lineTo(px+playerR*.75f,py+playerR*.75f);
-    ship.close();
-    p.setColor(Color.argb(a,92,190,230));c.drawPath(ship,p);
-    p.setColor(Color.argb(a,235,240,249));c.drawOval(new RectF(px-playerR*.22f,py-playerR*.45f,px+playerR*.22f,py+playerR*.35f),p);
-    p.setColor(Color.argb(a,244,146,61));
-    c.drawOval(new RectF(px-playerR*.20f,py+playerR*.45f,px+playerR*.20f,py+playerR*1.05f),p);
-    if(shield>0){
-      stroke.setStyle(Paint.Style.STROKE);stroke.setStrokeWidth(d(2));stroke.setColor(Color.argb(180,CYAN>>16&255,CYAN>>8&255,CYAN&255));
-      c.drawCircle(px,py,playerR*1.35f,stroke);
-    }
-  }
-
-  void drawEnemy(Canvas c,Enemy e){
-    float s=d(e.type==9?28:15)*e.scale;
-    if(e.type==9){
-      p.setColor(Color.rgb(95,104,136));c.drawOval(new RectF(e.x-s*1.35f,e.y-s*.55f,e.x+s*1.35f,e.y+s*.55f),p);
-      p.setColor(CHICKEN);c.drawOval(new RectF(e.x-s*.8f,e.y-s*.75f,e.x+s*.8f,e.y+s*.65f),p);
-      p.setColor(WHITE);c.drawCircle(e.x+s*.55f,e.y-s*.45f,s*.28f,p);
-      p.setColor(RED);c.drawCircle(e.x+s*.45f,e.y-s*.75f,s*.12f,p);c.drawCircle(e.x+s*.64f,e.y-s*.76f,s*.10f,p);
-      Path beak=new Path();beak.moveTo(e.x+s*.75f,e.y-s*.46f);beak.lineTo(e.x+s*1.05f,e.y-s*.32f);beak.lineTo(e.x+s*.76f,e.y-s*.18f);beak.close();p.setColor(BEAK);c.drawPath(beak,p);
-      p.setColor(Color.BLACK);c.drawCircle(e.x+s*.61f,e.y-s*.47f,s*.05f,p);
-      float hp=Math.max(0,e.hp/(float)e.maxHp);
-      round(c,e.x-s*1.2f,e.y+s*.85f,e.x+s*1.2f,e.y+s*1.02f,3,Color.rgb(50,58,77));
-      round(c,e.x-s*1.2f,e.y+s*.85f,e.x-s*1.2f+s*2.4f*hp,e.y+s*1.02f,3,RED);
-      return;
-    }
-    p.setColor(CHICKEN);c.drawOval(new RectF(e.x-s*.75f,e.y-s*.45f,e.x+s*.72f,e.y+s*.53f),p);
-    p.setColor(CHICKEN2);c.drawOval(new RectF(e.x-s*.90f,e.y-s*.30f,e.x-s*.40f,e.y+s*.23f),p);
-    p.setColor(WHITE);c.drawCircle(e.x+s*.48f,e.y-s*.35f,s*.30f,p);
-    p.setColor(RED);c.drawCircle(e.x+s*.34f,e.y-s*.62f,s*.12f,p);c.drawCircle(e.x+s*.51f,e.y-s*.67f,s*.11f,p);
-    Path beak=new Path();beak.moveTo(e.x+s*.70f,e.y-s*.34f);beak.lineTo(e.x+s*.99f,e.y-s*.20f);beak.lineTo(e.x+s*.70f,e.y-s*.05f);beak.close();p.setColor(BEAK);c.drawPath(beak,p);
-    p.setColor(Color.BLACK);c.drawCircle(e.x+s*.55f,e.y-s*.37f,s*.05f,p);
-    if(e.type==1){p.setColor(BLUE);c.drawRect(e.x-s*.45f,e.y+s*.25f,e.x+s*.34f,e.y+s*.46f,p);}
-    else if(e.type==2){p.setColor(GREEN);c.drawCircle(e.x-s*.18f,e.y+s*.07f,s*.20f,p);}
-    else if(e.type==3){p.setColor(RED);c.drawRect(e.x-s*.25f,e.y-s*.58f,e.x+s*.02f,e.y-s*.38f,p);}
-  }
-
-  void drawShot(Canvas c,Shot s){
-    if(s.enemy){
-      p.setColor(WHITE);c.drawOval(new RectF(s.x-s.r*.72f,s.y-s.r,s.x+s.r*.72f,s.y+s.r),p);
-      p.setColor(Color.rgb(226,211,166));c.drawOval(new RectF(s.x-s.r*.42f,s.y-s.r*.60f,s.x+s.r*.42f,s.y+s.r*.60f),p);
-    }else{
-      p.setColor(CYAN);c.drawRoundRect(new RectF(s.x-s.r*.55f,s.y-s.r*2.3f,s.x+s.r*.55f,s.y+s.r*2.3f),s.r,s.r,p);
-      p.setColor(WHITE);c.drawCircle(s.x,s.y-s.r*1.2f,s.r*.45f,p);
-    }
-  }
-
-  void drawDrop(Canvas c,Drop dr){
-    int col=dr.type==0?YELLOW:dr.type==1?CYAN:ORANGE;
-    p.setColor(Color.argb(65,255,255,255));c.drawCircle(dr.x,dr.y,d(15),p);
-    p.setColor(col);c.drawCircle(dr.x,dr.y,d(10),p);
-    text(c,dr.type==0?"P":dr.type==1?"S":"N",dr.x,dr.y+d(4),9,SPACE,true,true);
-  }
-
-  void drawSpark(Canvas c,Spark s){
-    int alpha=(int)(255*Math.max(0,s.life/s.max));p.setColor(Color.argb(alpha,Color.red(s.color),Color.green(s.color),Color.blue(s.color)));
-    c.drawCircle(s.x,s.y,d(1.5f),p);
-  }
-
-  void drawPause(Canvas c){
-    p.setColor(Color.argb(185,0,0,0));c.drawRect(0,0,W,H,p);
-    float cx=W*.5f,boxW=Math.min(W-d(100),d(380)),x=cx-boxW/2,y=H*.28f;
-    round(c,x,y,x+boxW,y+d(178),18,PANEL2);
-    text(c,"MISSION PAUSED",cx,y+d(40),18,WHITE,true,true);
-    text(c,"Nothing moves until you resume.",cx,y+d(65),8,Color.rgb(185,199,228),false,true);
-    round(c,x+d(30),y+d(89),x+boxW-d(30),y+d(129),11,BLUE);
-    text(c,"RESUME",cx,y+d(115),10,WHITE,true,true);
-    round(c,x+d(30),y+d(137),x+boxW-d(30),y+d(167),9,Color.rgb(49,60,88));
-    text(c,"MAIN MENU",cx,y+d(157),8,WHITE,true,true);
-  }
-
-  void drawGameOver(Canvas c){
-    p.setColor(Color.argb(188,0,0,0));c.drawRect(0,0,W,H,p);
-    float cx=W*.5f,boxW=Math.min(W-d(100),d(410)),x=cx-boxW/2,y=H*.22f;
-    round(c,x,y,x+boxW,y+d(220),18,PANEL2);
-    text(c,"MISSION OVER",cx,y+d(42),20,WHITE,true,true);
-    text(c,"SCORE "+score,cx,y+d(77),15,YELLOW,true,true);
-    text(c,"Reached wave "+wave,cx,y+d(103),9,Color.rgb(187,201,230),false,true);
-    text(c,"Best "+bestScore+" • Best wave "+bestWave,cx,y+d(125),8,Color.rgb(150,170,207),false,true);
-    round(c,x+d(35),y+d(147),x+boxW-d(35),y+d(188),11,BLUE);
-    text(c,"RETRY",cx,y+d(173),10,WHITE,true,true);
-    text(c,"Tap Back for main menu",cx,y+d(207),7,Color.rgb(135,155,193),false,true);
-  }
-
-  void text(Canvas c,String s,float x,float y,float size,int color,boolean bold,boolean center){
-    p.setStyle(Paint.Style.FILL);p.setColor(color);p.setTextSize(d(size));p.setTypeface(Typeface.create("sans",bold?Typeface.BOLD:Typeface.NORMAL));
-    p.setTextAlign(center?Paint.Align.CENTER:Paint.Align.LEFT);c.drawText(s,x,y,p);p.setTextAlign(Paint.Align.LEFT);
-  }
-
-  void round(Canvas c,float l,float t,float r,float b,float rad,int col){
-    p.setStyle(Paint.Style.FILL);p.setColor(col);c.drawRoundRect(l,t,r,b,d(rad),d(rad),p);
-  }
-
-  @Override public boolean onTouchEvent(MotionEvent e){
-    float x=e.getX(),y=e.getY();
-    if(e.getAction()==MotionEvent.ACTION_DOWN){
-      if(mode==0){
-        float top=Math.max(d(24),H*.08f),menuY=top+d(190)+d(112),bw=Math.min(d(260),W*.55f),cx=W*.5f;
-        if(x>=cx-bw/2&&x<=cx+bw/2&&y>=menuY&&y<=menuY+d(48)){startGame();return true;}
-        return true;
-      }
-      if(mode==2){
-        float cx=W*.5f,boxW=Math.min(W-d(100),d(410)),bx=cx-boxW/2,by=H*.22f;
-        if(x>=bx+d(35)&&x<=bx+boxW-d(35)&&y>=by+d(147)&&y<=by+d(188)){startGame();return true;}
-        return true;
-      }
-      if(paused){
-        float cx=W*.5f,boxW=Math.min(W-d(100),d(380)),bx=cx-boxW/2,by=H*.28f;
-        if(x>=bx+d(30)&&x<=bx+boxW-d(30)&&y>=by+d(89)&&y<=by+d(129)){paused=false;systemPaused=false;lastNs=System.nanoTime();return true;}
-        if(x>=bx+d(30)&&x<=bx+boxW-d(30)&&y>=by+d(137)&&y<=by+d(167)){mode=0;paused=false;systemPaused=false;saveProgress();return true;}
-        return true;
-      }
-      if(x>=W-d(52)&&y<=d(46)){paused=true;touching=false;return true;}
-      if(x>=W-d(60)&&y>=H-d(64)){useBomb();return true;}
-      touching=true;touchX=x;touchY=y;
-      return true;
-    }
-    if(e.getAction()==MotionEvent.ACTION_MOVE){
-      if(mode==1&&!paused&&touching){touchX=x;touchY=y;}
-      return true;
-    }
-    if(e.getAction()==MotionEvent.ACTION_UP||e.getAction()==MotionEvent.ACTION_CANCEL){
-      touching=false;return true;
-    }
-    return true;
-  }
+  @Override public boolean onTouchEvent(MotionEvent e){float x=e.getX(),y=e.getY();if(e.getAction()==MotionEvent.ACTION_DOWN){
+    if(mode==0){float top=d(25),yy=top+d(184),cx=W/2f,bw=Math.min(d(290),W*.55f);if(x>cx-bw/2&&x<cx+bw/2){if(y>yy&&y<yy+d(46)){click();mode=1;}else if(y>yy+d(56)&&y<yy+d(96)){click();mode=4;}else if(y>yy+d(104)&&y<yy+d(144)){click();mode=5;}else if(y>yy+d(152)&&y<yy+d(192)){click();mode=6;}}return true;}
+    if(mode==1){float start=W*.18f,end=W*.82f,step=(end-start)/4f,ny=H*.48f;for(int i=0;i<5;i++){int lv=sector*5+i+1,floatDummy=0;float xx=start+i*step;if(lv<=prog.unlocked&&Math.hypot(x-xx,y-ny)<d(38)){click();startMission(lv);return true;}}if(y>H-d(60)){if(x<d(125)){sector=Math.max(0,sector-1);click();}else if(x>W-d(125)){sector=Math.min(5,sector+1);click();}else if(Math.abs(x-W/2)<d(80)){mode=0;click();}}return true;}
+    if(mode==4){float yy=d(72);if(y>yy&&y<yy+d(67)){if(prog.buy("blaster",5))click();}else if(y>yy+d(82)&&y<yy+d(149)){if(prog.buy("shield",5))click();}else if(y>yy+d(164)&&y<yy+d(231)){if(prog.buy("nova",3))click();}else if(y>H-d(60)){mode=0;click();}return true;}
+    if(mode==5){if(y>H-d(60)){mode=0;click();}return true;}
+    if(mode==6){float yy=d(90);if(y>yy&&y<yy+d(52)){prog.music=!prog.music;prog.save();sound.setMusic(prog.music);click();}else if(y>yy+d(70)&&y<yy+d(122)){prog.sfx=!prog.sfx;prog.save();sound.setSfx(prog.sfx);click();}else if(y>H-d(60)){mode=0;click();}return true;}
+    if(mode==3){float yy=d(55)+d(160),cx=W/2f;if(x>cx-d(130)&&x<cx+d(130)&&y>yy&&y<yy+d(42)){click();if(resultStars>0&&selectedLevel<30)startMission(selectedLevel+1);else startMission(selectedLevel);}else if(y>yy+d(47)&&y<yy+d(86)){mode=1;sector=(selectedLevel-1)/5;click();}return true;}
+    if(mode==2){if(paused){float yy=H*.27f+d(72),cx=W/2f;if(y>yy&&y<yy+d(38)){paused=false;systemPaused=false;last=System.nanoTime();click();}else if(y>yy+d(46)&&y<yy+d(80)){mode=1;paused=false;click();}return true;}if(x>W-d(55)&&y<d(86)){paused=true;touching=false;click();return true;}if(x>W-d(60)&&y>H-d(65)){useNova();return true;}touching=true;touchX=x;touchY=y;return true;}
+  }else if(e.getAction()==MotionEvent.ACTION_MOVE){if(mode==2&&!paused&&touching){touchX=x;touchY=y;}return true;}else if(e.getAction()==MotionEvent.ACTION_UP||e.getAction()==MotionEvent.ACTION_CANCEL){touching=false;return true;}return true;}
 }
